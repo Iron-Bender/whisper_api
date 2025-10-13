@@ -1,17 +1,37 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import whisper
 import tempfile
+import shutil
+import os
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8000"],  # Das ist deine Laravel-Entwicklungsumgebung
+    allow_credentials=True,
+    allow_methods=["*"],  # Erlaubt alle Methoden (GET, POST, etc.)
+    allow_headers=["*"],  # Erlaubt alle Header, inkl. Authorization und Content-Type
+)
+
+model = whisper.load_model("base")  # oder "small", "medium"
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 @app.post("/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-        contents = await file.read()
-        tmp.write(contents)
-        tmp_path = tmp.name
+async def transcribe_audio(file: UploadFile = File(...), language: str = Form("de")):
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            shutil.copyfileobj(file.file, tmp)
+            tmp_path = tmp.name
 
-    model = whisper.load_model("base")
-    result = model.transcribe(tmp_path)
+        result = model.transcribe(tmp_path, language=language)
+        os.remove(tmp_path)
 
-    return {"transcript": result["text"]}
+        return JSONResponse(content={"text": result["text"]})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
